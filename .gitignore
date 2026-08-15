@@ -1,4 +1,11 @@
 node_modules
 .next
 out
-.env*.local
+.env
+.env.*
+!.env.example
+/src/generated/prisma
+.agents/
+.claude/
+.windsurf/
+skills-lock.json

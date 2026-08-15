@@ -1,0 +1,316 @@
+// ============================================================
+// KAZICARE HOSPITALITY
+// Enterprise Hospitality Workforce Management Platform
+// ============================================================
+// Database: PostgreSQL
+// ORM: Prisma 7
+// Architecture: Multi-tenant SaaS
+//
+// IMPORTANT:
+// - DATABASE_URL is configured in prisma.config.ts.
+// - Do NOT put credentials directly in this file.
+// - Keep generated Prisma Client outside source control.
+// ============================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ORGANIZATION_ADMIN
+  MANAGER
+  SUPERVISOR
+  HR_ADMIN
+  EMPLOYEE
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CASUAL
+  CONTRACT
+  INTERN
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  REST_DAY
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  MATERNITY
+  PATERNITY
+  COMPASSIONATE
+  UNPAID
+  OTHER
+}
+
+// ============================================================
+// ORGANIZATION / TENANCY
+// ============================================================
+
+model Organization {
+  id       String  @id @default(cuid())
+  name     String
+  slug     String  @unique
+  email    String?
+  phone    String?
+  country  String?
+  timezone String  @default("Africa/Nairobi")
+  currency String  @default("KES")
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  departments Department[]
+  employees   Employee[]
+  shifts      Shift[]
+  attendance  Attendance[]
+  leave       LeaveRequest[]
+
+  @@index([isActive])
+  @@index([country])
+}
+
+// ============================================================
+// USERS / AUTHORIZATION
+// ============================================================
+
+model User {
+  id             String @id @default(cuid())
+  organizationId String
+
+  email         String
+  passwordHash  String
+  firstName     String
+  lastName      String
+  role          UserRole  @default(EMPLOYEE)
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  lastLoginAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  employee Employee?
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([role])
+  @@index([isActive])
+}
+
+// ============================================================
+// DEPARTMENTS
+// ============================================================
+
+model Department {
+  id             String @id @default(cuid())
+  organizationId String
+
+  name        String
+  description String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  employees Employee[]
+  shifts    Shift[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+// ============================================================
+// EMPLOYEES
+// ============================================================
+
+model Employee {
+  id             String  @id @default(cuid())
+  organizationId String
+  departmentId   String?
+  userId         String? @unique
+
+  employeeNumber String
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  jobTitle       String
+
+  employmentType EmploymentType @default(FULL_TIME)
+  status         EmployeeStatus @default(ACTIVE)
+
+  hireDate        DateTime?
+  terminationDate DateTime?
+
+  hourlyRate Decimal? @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  shifts        Shift[]
+  attendance    Attendance[]
+  leaveRequests LeaveRequest[]
+
+  @@unique([organizationId, employeeNumber])
+  @@index([organizationId])
+  @@index([departmentId])
+  @@index([status])
+  @@index([employmentType])
+}
+
+// ============================================================
+// SHIFTS
+// ============================================================
+
+model Shift {
+  id             String  @id @default(cuid())
+  organizationId String
+  employeeId     String
+  departmentId   String?
+
+  date      DateTime
+  startTime DateTime
+  endTime   DateTime
+
+  status ShiftStatus @default(SCHEDULED)
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  attendance Attendance[]
+
+  @@index([organizationId])
+  @@index([employeeId])
+  @@index([departmentId])
+  @@index([date])
+  @@index([status])
+}
+
+// ============================================================
+// ATTENDANCE
+// ============================================================
+
+model Attendance {
+  id             String  @id @default(cuid())
+  organizationId String
+  employeeId     String
+  shiftId        String?
+
+  date     DateTime
+  clockIn  DateTime?
+  clockOut DateTime?
+
+  status AttendanceStatus @default(PRESENT)
+
+  hoursWorked   Decimal? @db.Decimal(6, 2)
+  lateMinutes   Int      @default(0)
+  overtimeHours Decimal? @db.Decimal(6, 2)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift        Shift?       @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, date])
+  @@index([organizationId])
+  @@index([employeeId])
+  @@index([date])
+  @@index([status])
+}
+
+// ============================================================
+// LEAVE MANAGEMENT
+// ============================================================
+
+model LeaveRequest {
+  id             String @id @default(cuid())
+  organizationId String
+  employeeId     String
+
+  type      LeaveType
+  startDate DateTime
+  endDate   DateTime
+
+  days   Decimal @db.Decimal(6, 2)
+  reason String?
+
+  status LeaveStatus @default(PENDING)
+
+  reviewedAt    DateTime?
+  reviewComment String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// ============================================================
+// END OF SCHEMA
+// ============================================================
