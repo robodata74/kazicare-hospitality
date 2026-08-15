@@ -9,3 +9,5 @@ out
 .claude/
 .windsurf/
 skills-lock.json
+tsconfig.tsbuildinfo
+kazicare-productized-wave1.zip

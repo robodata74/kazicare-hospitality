@@ -1,119 +1,574 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { kpi, shiftCoverage, attentionItems, workforceHealthScore } from "@/lib/data";
-import { AlertTriangle, AlertCircle, Info, ChevronRight } from "lucide-react";
+import {
+  Users,
+  Building2,
+  CalendarClock,
+  ClipboardCheck,
+  ArrowUpRight,
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Activity,
+} from "lucide-react";
 
-const kpiCards = [
-  { label: "Scheduled", value: kpi.scheduled, tone: "neutral" },
-  { label: "Present", value: kpi.present, tone: "good" },
-  { label: "Late", value: kpi.late, tone: "warn" },
-  { label: "Absent", value: kpi.absent, tone: "bad" },
-  { label: "On Leave", value: kpi.onLeave, tone: "neutral" },
-  { label: "Critical Issues", value: kpi.criticalIssues, tone: "bad" },
-];
+const ORGANIZATION_ID = "cmsu5ut2m0000agxbj2pfr1w0";
 
-const toneClasses: Record<string, string> = {
-  good: "text-emerald-700",
-  warn: "text-amber-600",
-  bad: "text-rose-700",
-  neutral: "text-neutral-900",
+type Employee = {
+  id: string;
+  employeeNumber: string;
+  firstName: string;
+  lastName: string;
+  position: string;
+  employmentType: string;
+  status: string;
+  department?: {
+    id: string;
+    name: string;
+  } | null;
 };
 
-const severityStyle = {
-  critical: { icon: AlertTriangle, className: "border-rose-200 bg-rose-50 text-rose-700" },
-  warning: { icon: AlertCircle, className: "border-amber-200 bg-amber-50 text-amber-700" },
-  info: { icon: Info, className: "border-sky-200 bg-sky-50 text-sky-700" },
-} as const;
+type Department = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  _count?: {
+    employees: number;
+    shifts: number;
+  };
+};
+
+type EmployeesResponse = {
+  status: string;
+  count: number;
+  data: Employee[];
+};
+
+type DepartmentsResponse = {
+  status: string;
+  count: number;
+  data: Department[];
+};
+
+const statCards = [
+  {
+    key: "employees",
+    label: "Employees",
+    icon: Users,
+    description: "Active workforce records",
+    accent: "crimson",
+  },
+  {
+    key: "departments",
+    label: "Departments",
+    icon: Building2,
+    description: "Operational departments",
+    accent: "blue",
+  },
+  {
+    key: "shifts",
+    label: "Scheduled Shifts",
+    icon: CalendarClock,
+    description: "Currently scheduled",
+    accent: "slate",
+  },
+  {
+    key: "attendance",
+    label: "Attendance",
+    icon: ClipboardCheck,
+    description: "Records available",
+    accent: "slate",
+  },
+] as const;
+
+function StatIcon({
+  icon: Icon,
+  accent,
+}: {
+  icon: typeof Users;
+  accent: "crimson" | "blue" | "slate";
+}) {
+  const classes = {
+    crimson:
+      "bg-[var(--kc-crimson-soft)] text-[var(--kc-crimson-hover)]",
+    blue: "bg-sky-500/10 text-sky-300",
+    slate: "bg-slate-500/10 text-slate-300",
+  };
+
+  return (
+    <div
+      className={`flex h-10 w-10 items-center justify-center rounded-xl ${classes[accent]}`}
+    >
+      <Icon size={19} strokeWidth={1.9} />
+    </div>
+  );
+}
 
 export default function DashboardPage() {
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDashboard() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const [employeesResponse, departmentsResponse] = await Promise.all([
+          fetch(
+            `/api/employees?organizationId=${ORGANIZATION_ID}`,
+            { cache: "no-store" },
+          ),
+          fetch(
+            `/api/departments?organizationId=${ORGANIZATION_ID}`,
+            { cache: "no-store" },
+          ),
+        ]);
+
+        if (!employeesResponse.ok || !departmentsResponse.ok) {
+          throw new Error("Unable to load workforce data.");
+        }
+
+        const employeesData =
+          (await employeesResponse.json()) as EmployeesResponse;
+
+        const departmentsData =
+          (await departmentsResponse.json()) as DepartmentsResponse;
+
+        if (!cancelled) {
+          setEmployees(employeesData.data ?? []);
+          setDepartments(departmentsData.data ?? []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load workforce data.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadDashboard();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const activeEmployees = useMemo(
+    () => employees.filter((employee) => employee.status === "ACTIVE"),
+    [employees],
+  );
+
+  const activeDepartments = useMemo(
+    () => departments.filter((department) => department.isActive),
+    [departments],
+  );
+
+  const departmentCoverage = useMemo(
+    () =>
+      [...departments]
+        .sort(
+          (a, b) =>
+            (b._count?.employees ?? 0) - (a._count?.employees ?? 0),
+        )
+        .map((department) => ({
+          name: department.name,
+          employees: department._count?.employees ?? 0,
+          shifts: department._count?.shifts ?? 0,
+        })),
+    [departments],
+  );
+
   return (
     <>
-      <PageHeader title="Dashboard" subtitle="Today's workforce at a glance" />
-      <div className="p-6 space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {kpiCards.map((c) => (
-            <div key={c.label} className="rounded-xl border border-neutral-200 bg-white p-4">
-              <p className={`text-2xl font-semibold ${toneClasses[c.tone]}`}>{c.value}</p>
-              <p className="text-xs text-neutral-500 mt-1">{c.label}</p>
-            </div>
-          ))}
-        </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle="Your hospitality workforce at a glance"
+      />
 
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 rounded-xl border border-neutral-200 bg-white">
-            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Attention Required</h2>
-              <span className="text-xs text-neutral-400">{attentionItems.length} items</span>
-            </div>
-            <ul className="divide-y divide-neutral-100">
-              {attentionItems.map((item) => {
-                const s = severityStyle[item.severity];
-                const Icon = s.icon;
-                return (
-                  <li key={item.id} className="px-5 py-4 flex gap-3">
-                    <div className={`shrink-0 w-8 h-8 rounded-full border flex items-center justify-center ${s.className}`}>
-                      <Icon size={15} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{item.title}</p>
-                      <p className="text-xs text-neutral-500 mt-0.5">{item.detail}</p>
-                    </div>
-                    <button className="shrink-0 self-center text-xs font-medium text-rose-700 flex items-center gap-1 hover:underline">
-                      {item.action}
-                      <ChevronRight size={14} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+      <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+        {/* Welcome / overview */}
+        <section className="relative overflow-hidden rounded-2xl border border-[var(--kc-border)] bg-[var(--kc-surface)] p-5 sm:p-6">
+          <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-[var(--kc-crimson)] opacity-[0.06] blur-3xl" />
 
-          <div className="rounded-xl border border-neutral-200 bg-white p-5">
-            <h2 className="text-sm font-semibold mb-1">Workforce Health Score</h2>
-            <p className="text-xs text-neutral-500 mb-4">Explainable, not a black box</p>
-            <div className="flex items-end gap-2 mb-4">
-              <span className="text-4xl font-bold text-emerald-700">{workforceHealthScore.score}</span>
-              <span className="text-neutral-400 text-sm mb-1">/ 100</span>
-            </div>
-            <div className="space-y-3">
-              {workforceHealthScore.factors.map((f) => (
-                <div key={f.label}>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-medium">{f.label}</span>
-                    <span className="text-neutral-400">{f.weight}</span>
-                  </div>
-                  <p className="text-[11px] text-neutral-500">{f.note}</p>
+          <div className="relative">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[var(--kc-crimson)]" />
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--kc-muted)]">
+                    Operations Overview
+                  </span>
                 </div>
-              ))}
+
+                <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
+                  KaziCare Hospitality
+                </h2>
+
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--kc-muted)]">
+                  Know your workforce. Know your operation. Run your
+                  hospitality business better.
+                </p>
+              </div>
+
+              <div className="shrink-0 rounded-xl border border-[var(--kc-border)] bg-white/[0.025] px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                  Workspace
+                </p>
+                <p className="mt-1 text-sm font-medium text-white">
+                  Kenya <span className="text-slate-600">•</span> KES
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="rounded-xl border border-neutral-200 bg-white">
-          <div className="px-5 py-4 border-b border-neutral-200">
-            <h2 className="text-sm font-semibold">Shift Coverage by Department</h2>
+        {/* Error */}
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 p-4"
+          >
+            <AlertTriangle
+              size={18}
+              className="mt-0.5 shrink-0 text-rose-400"
+            />
+
+            <div>
+              <p className="text-sm font-medium text-white">
+                Workforce data unavailable
+              </p>
+              <p className="mt-1 text-xs text-rose-200/70">{error}</p>
+            </div>
           </div>
-          <div className="p-5 grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            {shiftCoverage.map((d) => {
-              const pct = Math.round((d.present / d.scheduled) * 100);
-              const short = pct < 70;
-              return (
-                <div key={d.department} className="rounded-lg border border-neutral-200 p-4">
-                  <p className="text-sm font-medium">{d.department}</p>
-                  <p className="text-xs text-neutral-500 mb-2">
-                    {d.present} / {d.scheduled} present
+        )}
+
+        {/* KPI cards */}
+        <section
+          aria-label="Workforce summary"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          {statCards.map((card) => {
+            const value =
+              card.key === "employees"
+                ? activeEmployees.length
+                : card.key === "departments"
+                  ? activeDepartments.length
+                  : "—";
+
+            const Icon = card.icon;
+
+            return (
+              <article
+                key={card.key}
+                className="rounded-2xl border border-[var(--kc-border)] bg-[var(--kc-surface)] p-4 transition-colors hover:border-slate-700 sm:p-5"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <StatIcon icon={Icon} accent={card.accent} />
+
+                  <ArrowUpRight
+                    size={16}
+                    className="text-slate-700"
+                    aria-hidden="true"
+                  />
+                </div>
+
+                <div className="mt-5">
+                  <p className="text-3xl font-semibold tracking-tight text-white">
+                    {loading ? "—" : value}
                   </p>
-                  <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${short ? "bg-rose-500" : "bg-emerald-500"}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
+
+                  <p className="mt-1 text-sm font-medium text-slate-300">
+                    {card.label}
+                  </p>
+
+                  <p className="mt-1 text-xs text-slate-600">
+                    {card.description}
+                  </p>
                 </div>
-              );
-            })}
-          </div>
+              </article>
+            );
+          })}
+        </section>
+
+        {/* Operational status */}
+        <div className="grid gap-6 lg:grid-cols-3">
+          <section className="rounded-2xl border border-[var(--kc-border)] bg-[var(--kc-surface)] lg:col-span-2">
+            <div className="flex items-center justify-between border-b border-[var(--kc-border)] px-5 py-4">
+              <div>
+                <h2 className="text-sm font-semibold text-white">
+                  Department Coverage
+                </h2>
+                <p className="mt-1 text-xs text-[var(--kc-muted)]">
+                  Current workforce distribution
+                </p>
+              </div>
+
+              <span className="rounded-full border border-[var(--kc-border)] px-2.5 py-1 text-[10px] font-medium text-slate-500">
+                Live data
+              </span>
+            </div>
+
+            <div className="divide-y divide-white/[0.05]">
+              {loading ? (
+                <div className="space-y-4 p-5">
+                  {[1, 2, 3, 4, 5].map((item) => (
+                    <div key={item} className="animate-pulse">
+                      <div className="h-4 w-32 rounded bg-white/[0.06]" />
+                      <div className="mt-2 h-2 w-full rounded bg-white/[0.04]" />
+                    </div>
+                  ))}
+                </div>
+              ) : departmentCoverage.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Building2
+                    size={22}
+                    className="mx-auto text-slate-700"
+                  />
+                  <p className="mt-3 text-sm font-medium text-slate-300">
+                    No departments found
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Department data will appear here once available.
+                  </p>
+                </div>
+              ) : (
+                departmentCoverage.map((department) => {
+                  const total = activeEmployees.length || 1;
+                  const percentage = Math.round(
+                    (department.employees / total) * 100,
+                  );
+
+                  return (
+                    <div
+                      key={department.name}
+                      className="px-5 py-4"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-white">
+                            {department.name}
+                          </p>
+
+                          <p className="mt-0.5 text-xs text-slate-600">
+                            {department.employees} employee
+                            {department.employees === 1 ? "" : "s"}
+                          </p>
+                        </div>
+
+                        <span className="shrink-0 text-xs font-medium text-slate-400">
+                          {percentage}%
+                        </span>
+                      </div>
+
+                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                        <div
+                          className="h-full rounded-full bg-[var(--kc-crimson)] transition-all"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {/* System status */}
+          <section className="rounded-2xl border border-[var(--kc-border)] bg-[var(--kc-surface)]">
+            <div className="border-b border-[var(--kc-border)] px-5 py-4">
+              <h2 className="text-sm font-semibold text-white">
+                Operational Status
+              </h2>
+
+              <p className="mt-1 text-xs text-[var(--kc-muted)]">
+                Platform readiness
+              </p>
+            </div>
+
+            <div className="space-y-1 p-3">
+              <StatusRow
+                icon={Activity}
+                label="Database"
+                value="Connected"
+                positive
+              />
+
+              <StatusRow
+                icon={Users}
+                label="Employee data"
+                value={loading ? "Loading" : "Available"}
+                positive={!loading}
+              />
+
+              <StatusRow
+                icon={Building2}
+                label="Departments"
+                value={loading ? "Loading" : `${departments.length} loaded`}
+                positive={!loading}
+              />
+
+              <StatusRow
+                icon={CalendarClock}
+                label="Shift planning"
+                value="Not configured"
+              />
+
+              <StatusRow
+                icon={ClipboardCheck}
+                label="Attendance"
+                value="No records yet"
+              />
+            </div>
+
+            <div className="m-4 rounded-xl border border-[var(--kc-border)] bg-white/[0.02] p-4">
+              <div className="flex items-start gap-3">
+                <Clock3
+                  size={17}
+                  className="mt-0.5 shrink-0 text-[var(--kc-crimson-hover)]"
+                />
+
+                <div>
+                  <p className="text-xs font-semibold text-white">
+                    Workforce intelligence
+                  </p>
+
+                  <p className="mt-1 text-[11px] leading-5 text-slate-600">
+                    Attendance, shift coverage and workforce health metrics
+                    will become active as operational records are added.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
+
+        {/* Attention / next actions */}
+        <section className="rounded-2xl border border-[var(--kc-border)] bg-[var(--kc-surface)]">
+          <div className="border-b border-[var(--kc-border)] px-5 py-4">
+            <div>
+              <h2 className="text-sm font-semibold text-white">
+                What Requires Attention
+              </h2>
+
+              <p className="mt-1 text-xs text-[var(--kc-muted)]">
+                Operational signals from your workspace
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            <AttentionCard
+              icon={CheckCircle2}
+              title="Workforce records connected"
+              description={`${activeEmployees.length} active employee records are available.`}
+              tone="positive"
+            />
+
+            <AttentionCard
+              icon={Building2}
+              title="Department structure ready"
+              description={`${activeDepartments.length} active departments are configured.`}
+              tone="neutral"
+            />
+
+            <AttentionCard
+              icon={CalendarClock}
+              title="Shift planning next"
+              description="Create shift schedules to activate operational coverage insights."
+              tone="attention"
+            />
+          </div>
+        </section>
       </div>
     </>
+  );
+}
+
+function StatusRow({
+  icon: Icon,
+  label,
+  value,
+  positive = false,
+}: {
+  icon: typeof Activity;
+  label: string;
+  value: string;
+  positive?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-white/[0.02]">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.035]">
+        <Icon size={15} className="text-slate-500" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium text-slate-300">{label}</p>
+        <p
+          className={`mt-0.5 text-[11px] ${
+            positive ? "text-emerald-400" : "text-slate-600"
+          }`}
+        >
+          {value}
+        </p>
+      </div>
+
+      {positive && (
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-emerald-400"
+          aria-label="Operational"
+        />
+      )}
+    </div>
+  );
+}
+
+function AttentionCard({
+  icon: Icon,
+  title,
+  description,
+  tone,
+}: {
+  icon: typeof CheckCircle2;
+  title: string;
+  description: string;
+  tone: "positive" | "neutral" | "attention";
+}) {
+  const toneClasses = {
+    positive:
+      "bg-emerald-500/10 text-emerald-400 border-emerald-500/15",
+    neutral:
+      "bg-slate-500/10 text-slate-300 border-slate-500/15",
+    attention:
+      "bg-[var(--kc-crimson-soft)] text-[var(--kc-crimson-hover)] border-[var(--kc-crimson)]/20",
+  };
+
+  return (
+    <div className="rounded-xl border border-[var(--kc-border)] bg-white/[0.015] p-4">
+      <div
+        className={`flex h-9 w-9 items-center justify-center rounded-lg border ${toneClasses[tone]}`}
+      >
+        <Icon size={17} />
+      </div>
+
+      <h3 className="mt-4 text-sm font-semibold text-white">{title}</h3>
+
+      <p className="mt-1 text-xs leading-5 text-slate-600">
+        {description}
+      </p>
+    </div>
   );
 }
